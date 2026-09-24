@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vote-api
+  namespace: gitops-managed-project
+  labels:
+    app: vote-api
+spec:
+  ports:
+    - name: 5000-tcp
+      port: 5000
+      targetPort: 5000
+  selector:
+    app: vote-api

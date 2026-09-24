@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vote-ui
+  namespace: gitops-managed-project
+  labels:
+    app: vote-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vote-ui
+  template:
+    metadata:
+      labels:
+        app: vote-ui
+    spec:
+      containers:
+        - name: vote-ui
+          image: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/vote-ui:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

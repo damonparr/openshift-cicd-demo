@@ -1,0 +1,74 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-and-create-imagestream
+spec:
+  workspaces:
+    - name: shared-workspace
+  params:
+    - name: app-name
+      type: string
+      description: Name of the application / ImageStream (vote-api or vote-ui)
+    - name: git-url
+      type: string
+      description: Git repository URL
+    - name: git-revision
+      type: string
+      description: Git revision/branch
+      default: master
+    - name: target-namespace
+      type: string
+      description: Target project for ImageStreams and GitOps deployments
+      default: "gitops-managed-project"
+  tasks:
+    - name: fetch-repository
+      taskRef:
+        resolver: cluster
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: namespace
+            value: openshift-pipelines
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+      params:
+        - name: URL
+          value: $(params.git-url)
+        - name: SUBDIRECTORY
+          value: ""
+        - name: DELETE_EXISTING
+          value: "true"
+        - name: REVISION
+          value: $(params.git-revision)
+
+    - name: create-imagestream
+      taskRef:
+        name: create-imagestream
+      params:
+        - name: IMAGE_STREAM_NAME
+          value: $(params.app-name)
+        - name: TARGET_NAMESPACE
+          value: $(params.target-namespace)
+
+    - name: build-image
+      taskRef:
+        resolver: cluster
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: buildah
+          - name: namespace
+            value: openshift-pipelines
+      params:
+        - name: IMAGE
+          value: image-registry.openshift-image-registry.svc:5000/$(params.target-namespace)/$(params.app-name):latest
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      runAfter:
+        - fetch-repository
+        - create-imagestream

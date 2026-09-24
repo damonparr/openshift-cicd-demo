@@ -1,0 +1,11 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: vote-api
+  namespace: gitops-managed-project
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: vote-ui
+  namespace: gitops-managed-project

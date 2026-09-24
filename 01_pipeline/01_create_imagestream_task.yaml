@@ -1,0 +1,19 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: create-imagestream
+spec:
+  params:
+    - name: IMAGE_STREAM_NAME
+      type: string
+      description: Name of the ImageStream to create
+    - name: TARGET_NAMESPACE
+      type: string
+      description: Namespace where the ImageStream should be created
+      default: "gitops-managed-project"
+  steps:
+    - name: create-imagestream
+      image: quay.io/openshift/origin-cli:latest
+      script: |
+        #!/usr/bin/env bash
+        oc create imagestream $(params.IMAGE_STREAM_NAME) -n $(params.TARGET_NAMESPACE) --dry-run=client -o yaml | oc apply -f -

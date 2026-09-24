@@ -1,0 +1,17 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: vote-ui
+  namespace: gitops-managed-project
+  labels:
+    app: vote-ui
+spec:
+  to:
+    kind: Service
+    name: vote-ui
+    weight: 100
+  port:
+    targetPort: 8080-tcp
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
