@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: vote-ui
-          image: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/vote-ui:latest
+          image: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/pipelines-vote-ui:latest
           imagePullPolicy: Always
           env:
             - name: VOTING_API_SERVICE_HOST

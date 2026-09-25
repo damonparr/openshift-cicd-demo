@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: vote-api
-          image: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/vote-api:latest
+          image: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/pipelines-vote-api:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 9000
