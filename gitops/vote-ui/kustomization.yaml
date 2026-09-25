@@ -10,4 +10,4 @@ resources:
 
 images:
   - name: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/pipelines-vote-ui
-    digest: 'sha256:543af3e314b1546ca54e1bf942afbdf34853f19d1c84f6647cb8103f9798abb6'
+    digest: 'sha256:5712058ab81c9cd6a4dda7338631bd7371e8f29f3b501a4f563edce650afa195'
