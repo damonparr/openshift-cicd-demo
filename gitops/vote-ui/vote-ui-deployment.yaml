@@ -18,8 +18,17 @@ spec:
       containers:
         - name: vote-ui
           image: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/vote-ui:latest
+          imagePullPolicy: Always
+          env:
+            - name: VOTING_API_SERVICE_HOST
+              value: pipelines-vote-api
+            - name: VOTING_API_SERVICE_PORT
+              value: "9000"
           ports:
             - containerPort: 8080
+              protocol: TCP
+            - containerPort: 9090
+              protocol: TCP
           resources:
             requests:
               cpu: 100m

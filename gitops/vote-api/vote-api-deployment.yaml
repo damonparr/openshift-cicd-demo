@@ -18,8 +18,10 @@ spec:
       containers:
         - name: vote-api
           image: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/vote-api:latest
+          imagePullPolicy: Always
           ports:
-            - containerPort: 5000
+            - containerPort: 9000
+              protocol: TCP
           resources:
             requests:
               cpu: 100m
