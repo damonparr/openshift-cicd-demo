@@ -7,4 +7,3 @@ resources:
   - ../base
   - vote-api-deployment.yaml
   - vote-api-service.yaml
-  - vote-api-route.yaml
