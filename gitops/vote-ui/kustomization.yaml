@@ -3,10 +3,10 @@ kind: Kustomization
 
 namespace: gitops-managed-project
 
-images:
-- name: vote-ui
-  newName: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/pipelines-vote-ui
-  digest: sha256:f9d941a4139af9cd18b0cef60bbb4491496c275ff5e10a43d67a65167b7984cc
+#images:
+#- name: vote-ui
+#  newName: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/pipelines-vote-ui
+#  digest: sha256:f9d941a4139af9cd18b0cef60bbb4491496c275ff5e10a43d67a65167b7984cc
 
 resources:
   - vote-ui-deployment.yaml
