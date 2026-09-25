@@ -1,0 +1,94 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: update-gitops-kustomize
+  namespace: pipelines-demo
+spec:
+  description: Clones GitOps repository, updates image digest in kustomization.yaml, and pushes change.
+  params:
+    - name: gitops-repo-url
+      type: string
+      default: "https://github.com/damonparr/openshift-cicd-demo.git"
+    - name: gitops-branch
+      type: string
+      default: "main"
+    - name: kustomize-path
+      type: string
+      default: "gitops/vote-ui"
+    - name: image-name
+      type: string
+      default: "vote-ui"
+    - name: new-image
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000/gitops-managed-project/vote-ui"
+    - name: image-digest
+      type: string
+      description: "The sha256 digest sum of the built container image (e.g., sha256:1a2b3c...)"
+    - name: git-user-name
+      type: string
+      default: "Tekton CI/CD Bot"
+    - name: git-user-email
+      type: string
+      default: "tekton-bot@openshift.local"
+  steps:
+    - name: update-and-push
+      image: alpine/git:latest
+      env:
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitops-github-auth
+              key: token
+              optional: true
+      script: |
+        #!/usr/bin/env sh
+        set -e
+
+        # Setup authentication using GitHub Personal Access Token (PAT)
+        if [ -n "$GITHUB_TOKEN" ]; then
+          AUTH_REPO_URL=$(echo "$(params.gitops-repo-url)" | sed -e "s#https://#https://${GITHUB_TOKEN}@#")
+        else
+          AUTH_REPO_URL="$(params.gitops-repo-url)"
+        fi
+
+        git config --global user.name "$(params.git-user-name)"
+        git config --global user.email "$(params.git-user-email)"
+
+        echo "Cloning GitOps repository..."
+        rm -rf gitops-repo
+        git clone -b $(params.gitops-branch) ${AUTH_REPO_URL} gitops-repo
+        cd gitops-repo/$(params.kustomize-path)
+
+        echo "Formatting sha256 image digest..."
+        RAW_DIGEST="$(params.image-digest)"
+        case "$RAW_DIGEST" in
+          sha256:*) DIGEST_SUM="$RAW_DIGEST" ;;
+          *) DIGEST_SUM="sha256:${RAW_DIGEST}" ;;
+        esac
+
+        echo "Updating kustomization.yaml with ImageStreamTag digest: $DIGEST_SUM"
+
+        if grep -q "digest:" kustomization.yaml; then
+          sed -i "s#digest:.*#digest: '$DIGEST_SUM'#g" kustomization.yaml
+          sed -i "s#newName:.*#newName: '$(params.new-image)'#g" kustomization.yaml
+        else
+          cat <<EOF >> kustomization.yaml
+
+images:
+  - name: $(params.image-name)
+    newName: $(params.new-image)
+    digest: '$DIGEST_SUM'
+EOF
+        fi
+
+        echo "=== Updated kustomization.yaml ==="
+        cat kustomization.yaml
+
+        git add kustomization.yaml
+        if git diff --staged --quiet; then
+          echo "No changes detected in kustomization.yaml."
+        else
+          git commit -m "ci(vote-ui): update image digest to $DIGEST_SUM [skip ci]"
+          echo "Pushing changes to GitOps repository..."
+          git push origin $(params.gitops-branch)
+        fi

@@ -4,7 +4,6 @@ kind: Kustomization
 namespace: gitops-managed-project
 
 resources:
-  - ../base
   - vote-ui-deployment.yaml
   - vote-ui-service.yaml
   - vote-ui-route.yaml
