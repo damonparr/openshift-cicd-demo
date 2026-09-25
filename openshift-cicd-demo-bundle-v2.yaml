@@ -1,0 +1,396 @@
+# OpenShift CI/CD and ArgoCD GitOps Complete Demo Bundle (v2)
+# Includes Updated Namespaces (pipelines-demo), Dedicated ImageStream Namespace (gitops-managed-project),
+# and sha256 Digest-based GitOps Kustomize Updates.
+
+# --- File: 00_namespaces_and_imagestream.yaml ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pipelines-demo
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-managed-project
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: vote-ui
+  namespace: gitops-managed-project
+spec:
+  lookupPolicy:
+    local: false
+
+---
+
+# --- File: 01_task_gitops_update.yaml ---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: update-gitops-kustomize
+  namespace: pipelines-demo
+spec:
+  description: Clones GitOps repository, updates image digest in kustomization.yaml, and pushes change.
+  params:
+    - name: gitops-repo-url
+      type: string
+      default: "https://github.com/damonparr/openshift-cicd-demo.git"
+    - name: gitops-branch
+      type: string
+      default: "main"
+    - name: kustomize-path
+      type: string
+      default: "gitops/vote-ui"
+    - name: image-name
+      type: string
+      default: "vote-ui"
+    - name: new-image
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000/gitops-managed-project/vote-ui"
+    - name: image-digest
+      type: string
+      description: "The sha256 digest sum of the built container image (e.g., sha256:1a2b3c...)"
+    - name: git-user-name
+      type: string
+      default: "Tekton CI/CD Bot"
+    - name: git-user-email
+      type: string
+      default: "tekton-bot@openshift.local"
+  steps:
+    - name: update-and-push
+      image: alpine/git:latest
+      env:
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitops-github-auth
+              key: token
+              optional: true
+      script: |
+        #!/usr/bin/env sh
+        set -e
+
+        # Setup authentication using GitHub Personal Access Token (PAT)
+        if [ -n "$GITHUB_TOKEN" ]; then
+          AUTH_REPO_URL=$(echo "$(params.gitops-repo-url)" | sed -e "s#https://#https://${GITHUB_TOKEN}@#")
+        else
+          AUTH_REPO_URL="$(params.gitops-repo-url)"
+        fi
+
+        git config --global user.name "$(params.git-user-name)"
+        git config --global user.email "$(params.git-user-email)"
+
+        echo "Cloning GitOps repository..."
+        rm -rf gitops-repo
+        git clone -b $(params.gitops-branch) ${AUTH_REPO_URL} gitops-repo
+        cd gitops-repo/$(params.kustomize-path)
+
+        echo "Formatting sha256 image digest..."
+        RAW_DIGEST="$(params.image-digest)"
+        case "$RAW_DIGEST" in
+          sha256:*) DIGEST_SUM="$RAW_DIGEST" ;;
+          *) DIGEST_SUM="sha256:${RAW_DIGEST}" ;;
+        esac
+
+        echo "Updating kustomization.yaml with ImageStreamTag digest: $DIGEST_SUM"
+
+        if grep -q "digest:" kustomization.yaml; then
+          sed -i "s#digest:.*#digest: '$DIGEST_SUM'#g" kustomization.yaml
+          sed -i "s#newName:.*#newName: '$(params.new-image)'#g" kustomization.yaml
+        else
+          cat <<EOF >> kustomization.yaml
+
+images:
+  - name: $(params.image-name)
+    newName: $(params.new-image)
+    digest: '$DIGEST_SUM'
+EOF
+        fi
+
+        echo "=== Updated kustomization.yaml ==="
+        cat kustomization.yaml
+
+        git add kustomization.yaml
+        if git diff --staged --quiet; then
+          echo "No changes detected in kustomization.yaml."
+        else
+          git commit -m "ci(vote-ui): update image digest to $DIGEST_SUM [skip ci]"
+          echo "Pushing changes to GitOps repository..."
+          git push origin $(params.gitops-branch)
+        fi
+
+---
+
+# --- File: 01_pipeline.yaml ---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-and-deploy-vote-ui
+  namespace: pipelines-demo
+spec:
+  params:
+    - name: git-url
+      type: string
+      default: "https://github.com/damonparr/pipelines-vote-ui.git"
+    - name: git-revision
+      type: string
+      default: "master"
+    - name: gitops-repo-url
+      type: string
+      default: "https://github.com/damonparr/openshift-cicd-demo.git"
+    - name: image-name
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000/gitops-managed-project/vote-ui"
+  workspaces:
+    - name: shared-data
+  tasks:
+    - name: fetch-repository
+      taskRef:
+        resolver: cluster
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: namespace
+            value: openshift-pipelines
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.git-revision)
+      workspaces:
+        - name: output
+          workspace: shared-data
+
+    - name: build-image
+      runAfter:
+        - fetch-repository
+      taskRef:
+        resolver: cluster
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: buildah
+          - name: namespace
+            value: openshift-pipelines
+      params:
+        - name: IMAGE
+          value: "$(params.image-name):$(params.git-revision)"
+        - name: TLSVERIFY
+          value: "false"
+      workspaces:
+        - name: source
+          workspace: shared-data
+
+    - name: update-gitops
+      runAfter:
+        - build-image
+      taskRef:
+        name: update-gitops-kustomize
+      params:
+        - name: gitops-repo-url
+          value: $(params.gitops-repo-url)
+        - name: gitops-branch
+          value: "main"
+        - name: kustomize-path
+          value: "gitops/vote-ui"
+        - name: image-name
+          value: "vote-ui"
+        - name: new-image
+          value: $(params.image-name)
+        - name: image-digest
+          value: $(tasks.build-image.results.IMAGE_DIGEST)
+
+---
+
+# --- File: 01_pipelinerun.yaml ---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: vote-ui-pipeline-run-
+  namespace: pipelines-demo
+spec:
+  pipelineRef:
+    name: build-and-deploy-vote-ui
+  taskRunTemplate:
+    serviceAccountName: pipeline
+  params:
+    - name: git-url
+      value: "https://github.com/damonparr/pipelines-vote-ui.git"
+    - name: git-revision
+      value: "master"
+    - name: gitops-repo-url
+      value: "https://github.com/damonparr/openshift-cicd-demo.git"
+  workspaces:
+    - name: shared-data
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+
+---
+
+# --- File: 01_eventlistener.yaml ---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: vote-ui-listener
+  namespace: pipelines-demo
+spec:
+  serviceAccountName: pipeline
+  triggers:
+    - name: vote-ui-github-trigger
+      bindings:
+        - ref: vote-ui-binding
+      template:
+        ref: vote-ui-triggertemplate
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: el-vote-ui-listener
+  namespace: pipelines-demo
+spec:
+  to:
+    kind: Service
+    name: el-vote-ui-listener
+    weight: 100
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+---
+
+# --- File: 02_triggerbinding.yaml ---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: vote-ui-binding
+  namespace: pipelines-demo
+spec:
+  params:
+    - name: git-repo-url
+      value: $(body.repository.clone_url)
+    - name: git-repo-name
+      value: $(body.repository.name)
+    - name: git-revision
+      value: $(body.head_commit.id)
+    - name: git-ref
+      value: $(body.ref)
+
+---
+
+# --- File: 03_triggertemplate.yaml ---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: vote-ui-triggertemplate
+  namespace: pipelines-demo
+spec:
+  params:
+    - name: git-repo-url
+      description: The git repository url
+    - name: git-revision
+      description: The git revision / commit SHA
+    - name: git-ref
+      description: The git ref (e.g. refs/heads/master)
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: vote-ui-trig-run-
+        namespace: pipelines-demo
+      spec:
+        pipelineRef:
+          name: build-and-deploy-vote-ui
+        taskRunTemplate:
+          serviceAccountName: pipeline
+        params:
+          - name: git-url
+            value: $(tt.params.git-repo-url)
+          - name: git-revision
+            value: $(tt.params.git-revision)
+          - name: gitops-repo-url
+            value: "https://github.com/damonparr/openshift-cicd-demo.git"
+        workspaces:
+          - name: shared-data
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 1Gi
+
+---
+
+# --- File: 04_secret.yaml ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitops-github-auth
+  namespace: pipelines-demo
+  annotations:
+    tekton.dev/git-0: https://github.com
+type: Opaque
+stringData:
+  token: "ghp_YOUR_GITHUB_PERSONAL_ACCESS_TOKEN_HERE"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-webhook-secret
+  namespace: pipelines-demo
+type: Opaque
+stringData:
+  secretToken: "your-webhook-secret-string"
+
+---
+
+# --- File: kustomization.yaml ---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pipelines-demo
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - route.yaml
+
+images:
+  - name: vote-ui
+    newName: image-registry.openshift-image-registry.svc:5000/gitops-managed-project/vote-ui
+    digest: 'sha256:0000000000000000000000000000000000000000000000000000000000000000'
+
+---
+
+# --- File: argocd-app.yaml ---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vote-ui
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/damonparr/openshift-cicd-demo.git'
+    targetRevision: main
+    path: gitops/vote-ui
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: pipelines-demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
