@@ -1,0 +1,25 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: build-and-create-imagestream-vote-ui-
+spec:
+  pipelineRef:
+    name: build-and-create-imagestream
+  params:
+    - name: app-name
+      value: vote-ui
+    - name: git-url
+      value: https://github.com/openshift/pipelines-vote-ui.git
+    - name: git-revision
+      value: master
+    - name: target-namespace
+      value: gitops-managed-project
+  workspaces:
+    - name: shared-workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi

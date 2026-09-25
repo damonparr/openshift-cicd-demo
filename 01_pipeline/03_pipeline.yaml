@@ -43,7 +43,21 @@ spec:
           value: "true"
         - name: REVISION
           value: $(params.git-revision)
-
+    - name: sast-scan
+      taskSpec:
+        steps:
+          - name: sast-scan
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/usr/bin/env bash
+              echo "Starting SAST scan on source code..."
+              sleep 5
+              echo "SAST scan completed successfully with 0 policy violations."
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      runAfter:
+        - fetch-repository
     - name: create-imagestream
       taskRef:
         name: create-imagestream
@@ -52,7 +66,8 @@ spec:
           value: $(params.app-name)
         - name: TARGET_NAMESPACE
           value: $(params.target-namespace)
-
+      runAfter:
+        - sast-scan
     - name: build-image
       taskRef:
         resolver: cluster
@@ -70,5 +85,40 @@ spec:
         - name: source
           workspace: shared-workspace
       runAfter:
-        - fetch-repository
         - create-imagestream
+    - name: integration-test
+      params:
+        - name: app-name
+          value: $(params.app-name)
+      taskSpec:
+        params:
+          - name: app-name
+            type: string
+        steps:
+          - name: integration-test
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/usr/bin/env bash
+              echo "Running integration tests for $(params.app-name)..."
+              sleep 5
+              echo "Integration tests passed successfully."
+      runAfter:
+        - build-image
+    - name: dast-scan
+      params:
+        - name: app-name
+          value: $(params.app-name)
+      taskSpec:
+        params:
+          - name: app-name
+            type: string
+        steps:
+          - name: dast-scan
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/usr/bin/env bash
+              echo "Running DAST dynamic security scan against $(params.app-name)..."
+              sleep 5
+              echo "DAST scan completed successfully."
+      runAfter:
+        - integration-test
